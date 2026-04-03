@@ -6,7 +6,7 @@ from collections import deque
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = "8400163494"
 
-CHECK_INTERVAL = 1800  # 30 minutes
+CHECK_INTERVAL = 3600  # 1 hour
 COOLDOWN_SECONDS = 60 * 60  # 1 hour between same-direction alerts per coin
 
 portfolio = {
@@ -124,7 +124,7 @@ def build_buy_message(symbol, price, change, rsi, trend, amount, profile):
     return (
         f"🟢 {symbol} BUY SETUP\n"
         f"Price: £{price:.4f}\n"
-        f"30m move: {change:.2f}%\n"
+        f"1h move: {change:.2f}%\n"
         f"Trend: {trend}\n"
         f"RSI: {rsi:.1f}\n"
         f"Action: Buy ~£{amount}\n"
@@ -136,7 +136,7 @@ def build_sell_message(symbol, price, change, rsi, trend, action, profile):
     return (
         f"🔴 {symbol} TAKE PROFIT / SELL SETUP\n"
         f"Price: £{price:.4f}\n"
-        f"30m move: {change:.2f}%\n"
+        f"1h move: {change:.2f}%\n"
         f"Trend: {trend}\n"
         f"RSI: {rsi:.1f}\n"
         f"Action: {action}\n"
@@ -151,7 +151,7 @@ while True:
         btc_trend_ok = True
 
         for symbol, info in portfolio.items():
-            time.sleep(2)
+            time.sleep(5)
             price = get_price(info["id"])
             history = price_history[symbol]
             previous_price = history[-1] if len(history) > 0 else None
@@ -216,4 +216,4 @@ while True:
 
     except Exception as e:
         send_message(f"⚠️ Bot error: {str(e)}")
-        time.sleep(300)
+        time.sleep(900)
