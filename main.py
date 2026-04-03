@@ -7,7 +7,8 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = "8400163494"
 
 CHECK_INTERVAL = 3600  # 1 hour
-COOLDOWN_SECONDS = 60 * 60  # 1 hour between same-direction alerts per coin
+COOLDOWN_SECONDS = 60 * 60  # 1 hour
+ERROR_COOLDOWN_SECONDS = 6 * 60 * 60  # send API error max once every 6 hours
 
 portfolio = {
     "BTC": {
@@ -54,25 +55,36 @@ portfolio = {
 
 price_history = {symbol: deque(maxlen=60) for symbol in portfolio}
 last_alert_time = {}
+last_error_time = 0
 
 def send_message(msg: str) -> None:
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": CHAT_ID, "text": msg}, timeout=20)
 
-def get_price(coin_id: str) -> float:
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=gbp"
+def get_all_prices():
+    ids = ",".join(info["id"] for info in portfolio.values())
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=gbp"
     response = requests.get(url, timeout=20)
 
     if response.status_code != 200:
         raise Exception(f"API error {response.status_code}")
 
     data = response.json()
-    return float(data[coin_id]["gbp"])
+    prices = {}
+
+    for symbol, info in portfolio.items():
+        coin_id = info["id"]
+        if coin_id not in data or "gbp" not in data[coin_id]:
+            raise Exception(f"Missing price for {symbol}")
+        prices[symbol] = float(data[coin_id]["gbp"])
+
+    return prices
 
 def sma(values, period: int):
     if len(values) < period:
         return None
-    return sum(list(values)[-period:]) / period
+    vals = list(values)
+    return sum(vals[-period:]) / period
 
 def calc_rsi(values, period: int = 14):
     vals = list(values)
@@ -120,6 +132,13 @@ def mark_alert(symbol: str, side: str):
     key = f"{symbol}_{side}"
     last_alert_time[key] = time.time()
 
+def maybe_send_error(msg: str):
+    global last_error_time
+    now = time.time()
+    if now - last_error_time >= ERROR_COOLDOWN_SECONDS:
+        send_message(msg)
+        last_error_time = now
+
 def build_buy_message(symbol, price, change, rsi, trend, amount, profile):
     return (
         f"🟢 {symbol} BUY SETUP\n"
@@ -148,11 +167,11 @@ send_message("🚀 Smarter crypto bot is now live")
 
 while True:
     try:
+        prices = get_all_prices()
         btc_trend_ok = True
 
         for symbol, info in portfolio.items():
-            time.sleep(5)
-            price = get_price(info["id"])
+            price = prices[symbol]
             history = price_history[symbol]
             previous_price = history[-1] if len(history) > 0 else None
             history.append(price)
@@ -165,7 +184,7 @@ while True:
             if symbol == "BTC" and trend == "Down":
                 btc_trend_ok = False
 
-            if previous_price is None or rsi is None or sma20 is None:
+            if previous_price is None or rsi is None or sma20 is None or sma50 is None:
                 continue
 
             change = ((price - previous_price) / previous_price) * 100
@@ -215,5 +234,5 @@ while True:
         time.sleep(CHECK_INTERVAL)
 
     except Exception as e:
-        send_message(f"⚠️ Bot error: {str(e)}")
-        time.sleep(900)
+        maybe_send_error(f"⚠️ Bot error: {str(e)}")
+        time.sleep(3600)
