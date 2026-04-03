@@ -6,7 +6,7 @@ from collections import deque
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = "8400163494"
 
-CHECK_INTERVAL = 900  # 15 minutes
+CHECK_INTERVAL = 1800  # 30 minutes
 COOLDOWN_SECONDS = 60 * 60  # 1 hour between same-direction alerts per coin
 
 portfolio = {
@@ -54,7 +54,6 @@ portfolio = {
 
 price_history = {symbol: deque(maxlen=60) for symbol in portfolio}
 last_alert_time = {}
-last_alert_side = {}
 
 def send_message(msg: str) -> None:
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -62,9 +61,12 @@ def send_message(msg: str) -> None:
 
 def get_price(coin_id: str) -> float:
     url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=gbp"
-    r = requests.get(url, timeout=20)
-    r.raise_for_status()
-    data = r.json()
+    response = requests.get(url, timeout=20)
+
+    if response.status_code != 200:
+        raise Exception(f"API error {response.status_code}")
+
+    data = response.json()
     return float(data[coin_id]["gbp"])
 
 def sma(values, period: int):
@@ -117,13 +119,12 @@ def in_cooldown(symbol: str, side: str) -> bool:
 def mark_alert(symbol: str, side: str):
     key = f"{symbol}_{side}"
     last_alert_time[key] = time.time()
-    last_alert_side[symbol] = side
 
 def build_buy_message(symbol, price, change, rsi, trend, amount, profile):
     return (
         f"🟢 {symbol} BUY SETUP\n"
         f"Price: £{price:.4f}\n"
-        f"15m move: {change:.2f}%\n"
+        f"30m move: {change:.2f}%\n"
         f"Trend: {trend}\n"
         f"RSI: {rsi:.1f}\n"
         f"Action: Buy ~£{amount}\n"
@@ -135,7 +136,7 @@ def build_sell_message(symbol, price, change, rsi, trend, action, profile):
     return (
         f"🔴 {symbol} TAKE PROFIT / SELL SETUP\n"
         f"Price: £{price:.4f}\n"
-        f"15m move: {change:.2f}%\n"
+        f"30m move: {change:.2f}%\n"
         f"Trend: {trend}\n"
         f"RSI: {rsi:.1f}\n"
         f"Action: {action}\n"
@@ -150,6 +151,7 @@ while True:
         btc_trend_ok = True
 
         for symbol, info in portfolio.items():
+            time.sleep(2)
             price = get_price(info["id"])
             history = price_history[symbol]
             previous_price = history[-1] if len(history) > 0 else None
@@ -179,7 +181,6 @@ while True:
                 and change >= info["min_change_sell"]
             )
 
-            # Extra caution on altcoins if BTC trend is down
             if symbol in ["XRP", "SOL", "JUP"] and not btc_trend_ok:
                 buy_ok = False
 
@@ -215,4 +216,4 @@ while True:
 
     except Exception as e:
         send_message(f"⚠️ Bot error: {str(e)}")
-        time.sleep(60)
+        time.sleep(300)
